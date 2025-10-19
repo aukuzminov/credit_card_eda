@@ -16,13 +16,13 @@ const CONFIG = {
         // Feature groups
         demographics: ['SEX', 'EDUCATION', 'MARRIAGE', 'AGE'],
         financial: ['LIMIT_BAL'],
-        paymentStatus: ['PAY_0', 'PAY_2', 'PAY_3', 'PAY_4', 'PAY_5', 'PAY_6'],  // Note: PAY_1 handled as alias for PAY_0
+        paymentStatus: ['PAY_1', 'PAY_2', 'PAY_3', 'PAY_4', 'PAY_5', 'PAY_6'],  // Payment status for 6 months
         billAmounts: ['BILL_AMT1', 'BILL_AMT2', 'BILL_AMT3', 'BILL_AMT4', 'BILL_AMT5', 'BILL_AMT6'],
         paymentAmounts: ['PAY_AMT1', 'PAY_AMT2', 'PAY_AMT3', 'PAY_AMT4', 'PAY_AMT5', 'PAY_AMT6']
     },
 
     // Categorical columns (numeric but represent categories)
-    categorical: ['SEX', 'EDUCATION', 'MARRIAGE', 'PAY_0', 'PAY_2', 'PAY_3', 'PAY_4', 'PAY_5', 'PAY_6'],
+    categorical: ['SEX', 'EDUCATION', 'MARRIAGE', 'PAY_1', 'PAY_2', 'PAY_3', 'PAY_4', 'PAY_5', 'PAY_6'],
 
     // Age bins for histogram visualization
     ageBins: [0, 25, 35, 45, 55, 65, 100],
@@ -287,26 +287,6 @@ function loadCSV(file) {
 }
 
 /**
- * Handle PAY_0 vs PAY_1 naming inconsistency
- * Standardizes to PAY_0 for consistency
- * @param {Array} data - Array of data objects
- */
-function normalizeColumnNames(data) {
-    if (!data || data.length === 0) return;
-
-    const firstRow = data[0];
-
-    // Check if PAY_1 exists but PAY_0 doesn't (naming inconsistency)
-    if ('PAY_1' in firstRow && !('PAY_0' in firstRow)) {
-        console.log('Detected PAY_1 column, renaming to PAY_0 for consistency');
-        data.forEach(row => {
-            row['PAY_0'] = row['PAY_1'];
-            delete row['PAY_1'];
-        });
-    }
-}
-
-/**
  * Merge train and test datasets
  * @param {Array} train - Training data
  * @param {Array} test - Test data (optional)
@@ -343,7 +323,6 @@ async function handleFileLoad() {
         // Load the initial file
         console.log('Loading train file...');
         let rawData = await loadCSV(trainFile);
-        normalizeColumnNames(rawData);
         console.log(`File loaded: ${rawData.length} rows`);
 
         if (!testFile && CONFIG.autoSplit.enabled) {
@@ -385,7 +364,6 @@ async function handleFileLoad() {
             // TWO FILE MODE - Load and merge
             console.log('Two file mode: loading test file...');
             testData = await loadCSV(testFile);
-            normalizeColumnNames(testData);
             console.log(`Test data loaded: ${testData.length} rows`);
 
             trainData = rawData;
