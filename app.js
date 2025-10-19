@@ -886,10 +886,21 @@ function renderFinancialCharts() {
 function renderDefaultRateCharts() {
     // Check if target exists
     const hasTarget = mergedData.some(row => row[CONFIG.schema.target] != null);
+
+    const messageDiv = document.getElementById('default-rate-message');
+    const chartsDiv = document.getElementById('default-rate-charts');
+
     if (!hasTarget) {
         console.log('Target variable not available, skipping default rate charts');
+        // Show message and hide chart containers
+        if (messageDiv) messageDiv.style.display = 'block';
+        if (chartsDiv) chartsDiv.style.display = 'none';
         return;
     }
+
+    // Hide message and show charts
+    if (messageDiv) messageDiv.style.display = 'none';
+    if (chartsDiv) chartsDiv.style.display = 'grid';
 
     // Default rate by SEX
     renderDefaultRateByCategory('SEX', 'default-by-sex-chart', 'Default Rate by Gender');

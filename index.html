@@ -397,7 +397,10 @@
             </div>
 
             <h3>Default Rate by Category</h3>
-            <div class="chart-grid">
+            <div id="default-rate-message" style="display: none; padding: 15px; background: #fff3cd; border-left: 4px solid #ffc107; margin: 15px 0;">
+                <em>Target variable not available in dataset. Default rate charts require the 'default.payment.next.month' column.</em>
+            </div>
+            <div class="chart-grid" id="default-rate-charts">
                 <div class="chart-container">
                     <canvas id="default-by-sex-chart"></canvas>
                 </div>
