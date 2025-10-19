@@ -10,8 +10,7 @@ const CONFIG = {
     // Schema definition - modify these for different datasets
     schema: {
         identifier: 'ID',  // Column to exclude from analysis
-        target: 'default.payment.next.month',  // Target variable name in CSV
-        targetAlias: 'dpnm',  // Short name for display
+        target: 'dpnm',  // Target variable name in CSV (default payment next month)
 
         // Feature groups
         demographics: ['SEX', 'EDUCATION', 'MARRIAGE', 'AGE'],
