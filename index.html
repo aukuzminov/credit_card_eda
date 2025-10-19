@@ -415,9 +415,29 @@
         <!-- Export Section -->
         <section id="export-section" style="display: none;">
             <h2>6. Export Data</h2>
-            <p>Download the merged dataset and statistical summary.</p>
-            <button id="export-csv-btn" class="export-btn">Export Merged CSV</button>
+            <p id="export-description">Download the dataset and statistical summary.</p>
+            <button id="export-csv-btn" class="export-btn">Export Full CSV</button>
             <button id="export-json-btn" class="export-btn">Export Statistics JSON</button>
+
+            <!-- Auto-split export options (shown only in single-file mode) -->
+            <div id="auto-split-exports" style="display: none; margin-top: 25px; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; color: white;">
+                <h3 style="margin-top: 0; margin-bottom: 12px; color: white; border: none; padding: 0;">
+                    ⚡ Auto-Split Exports (ML Workflow)
+                </h3>
+                <p style="font-size: 0.95em; margin-bottom: 15px; opacity: 0.95;">
+                    Your dataset has been automatically prepared for ML workflows. Export train/test splits separately:
+                </p>
+                <button id="export-train-btn" class="export-btn" style="background-color: #10b981; margin-right: 10px;">
+                    📊 Export Train CSV (80%, with target)
+                </button>
+                <button id="export-test-btn" class="export-btn" style="background-color: #f59e0b;">
+                    🧪 Export Test CSV (20%, no target)
+                </button>
+                <p style="font-size: 0.85em; margin-top: 12px; margin-bottom: 0; opacity: 0.85;">
+                    <em>Note: EDA was performed on the full dataset. The split is only for export purposes.</em>
+                </p>
+            </div>
+
             <div id="export-status" class="status-message"></div>
         </section>
     </div>

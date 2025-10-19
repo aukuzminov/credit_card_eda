@@ -37,6 +37,13 @@ const CONFIG = {
         EDUCATION: {0: 'Unknown', 1: 'Graduate', 2: 'University', 3: 'High School', 4: 'Others', 5: 'Unknown', 6: 'Unknown'},
         MARRIAGE: {0: 'Unknown', 1: 'Married', 2: 'Single', 3: 'Others'},
         [undefined]: {0: 'No Default', 1: 'Default'}  // For target variable
+    },
+
+    // Auto-split configuration (for single-file mode)
+    autoSplit: {
+        enabled: true,           // Enable auto-split when only one file is loaded
+        testRatio: 0.2,          // 20% test, 80% train
+        minRows: 10              // Minimum rows required to perform split
     }
 };
 // ========================================
@@ -49,6 +56,7 @@ const CONFIG = {
 let trainData = null;
 let testData = null;
 let mergedData = null;
+let isSingleFileMode = false;  // Track if auto-split was performed
 let statistics = {
     missing: {},
     numeric: {},
@@ -164,6 +172,80 @@ function getCategoricalColumns(data) {
     );
 }
 
+/**
+ * Shuffle array in place using Fisher-Yates algorithm
+ * Ensures truly random distribution for train/test split
+ * @param {Array} array - Array to shuffle
+ * @returns {Array} - Same array, shuffled in place
+ */
+function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];  // Swap elements
+    }
+    return array;
+}
+
+/**
+ * Deep clone a data row object
+ * Prevents reference issues when modifying test data
+ * @param {Object} row - Row object to clone
+ * @returns {Object} - Cloned row with no references to original
+ */
+function cloneRow(row) {
+    // Use JSON parse/stringify for deep clone
+    // Alternative: Object.assign({}, row) for shallow clone
+    return JSON.parse(JSON.stringify(row));
+}
+
+/**
+ * Split dataset into train and test sets
+ * Train set keeps all columns, test set has target removed
+ * @param {Array} data - Full dataset to split
+ * @param {number} testRatio - Ratio for test set (e.g., 0.2 for 20%)
+ * @returns {Object|null} - {train, test} or null if dataset too small
+ */
+function splitDataset(data, testRatio = 0.2) {
+    if (!data || data.length === 0) {
+        console.error('Cannot split empty dataset');
+        return null;
+    }
+
+    // Check minimum size requirement
+    if (data.length < CONFIG.autoSplit.minRows) {
+        console.warn(`Dataset has only ${data.length} rows. Minimum ${CONFIG.autoSplit.minRows} required for split.`);
+        return null;
+    }
+
+    // Clone and shuffle data to ensure random distribution
+    const shuffled = shuffleArray([...data]);
+
+    // Calculate split index (e.g., 80% for train)
+    const splitIndex = Math.floor(data.length * (1 - testRatio));
+
+    // Split into train and test
+    const trainData = shuffled.slice(0, splitIndex);
+    const testDataRaw = shuffled.slice(splitIndex);
+
+    // Clone test data and remove target column
+    const targetColumn = CONFIG.schema.target;
+    const testData = testDataRaw.map(row => {
+        const newRow = cloneRow(row);
+        // Remove target column if it exists
+        if (targetColumn in newRow) {
+            delete newRow[targetColumn];
+        }
+        return newRow;
+    });
+
+    console.log(`Dataset split: ${trainData.length} train (${Math.round((1-testRatio)*100)}%) / ${testData.length} test (${Math.round(testRatio*100)}%)`);
+
+    return {
+        train: trainData,
+        test: testData
+    };
+}
+
 // ========================================
 // DATA LOADING FUNCTIONS
 // ========================================
@@ -242,6 +324,7 @@ function mergeDatasets(train, test) {
 
 /**
  * Main function to handle file loading
+ * Handles both single-file (auto-split) and two-file (merge) modes
  */
 async function handleFileLoad() {
     const trainFile = document.getElementById('train-file').files[0];
@@ -257,26 +340,76 @@ async function handleFileLoad() {
         toggleSpinner('load-spinner', true);
         hideMessage('load-status');
 
-        // Load train data
-        console.log('Loading train data...');
-        trainData = await loadCSV(trainFile);
-        normalizeColumnNames(trainData);
-        console.log(`Train data loaded: ${trainData.length} rows`);
+        // Load the initial file
+        console.log('Loading train file...');
+        let rawData = await loadCSV(trainFile);
+        normalizeColumnNames(rawData);
+        console.log(`File loaded: ${rawData.length} rows`);
 
-        // Load test data if provided
-        if (testFile) {
-            console.log('Loading test data...');
+        if (!testFile && CONFIG.autoSplit.enabled) {
+            // SINGLE FILE MODE - Use full data for EDA, split only for export
+            console.log('Single file mode: using full dataset for EDA, preparing split for export...');
+
+            // USE FULL ORIGINAL DATA FOR EDA
+            mergedData = rawData;
+
+            // Perform split only for future export (trainData/testData)
+            const splitResult = splitDataset(rawData, CONFIG.autoSplit.testRatio);
+
+            if (splitResult === null) {
+                // Dataset too small for split
+                console.warn('Dataset too small for auto-split');
+                trainData = null;
+                testData = null;
+                isSingleFileMode = false;
+
+                toggleSpinner('load-spinner', false);
+                showMessage('load-status',
+                    `✓ Data loaded! ${mergedData.length} rows, ${Object.keys(mergedData[0]).length} columns. (Dataset too small for auto-split - minimum ${CONFIG.autoSplit.minRows} rows required)`,
+                    'success');
+            } else {
+                // Split successful - store for export only
+                trainData = splitResult.train;
+                testData = splitResult.test;
+                isSingleFileMode = true;
+
+                toggleSpinner('load-spinner', false);
+                const trainPct = Math.round((1 - CONFIG.autoSplit.testRatio) * 100);
+                const testPct = Math.round(CONFIG.autoSplit.testRatio * 100);
+                showMessage('load-status',
+                    `✓ Data loaded! ${mergedData.length} rows, ${Object.keys(mergedData[0]).length} columns. Auto-split prepared for export: ${trainData.length} train (${trainPct}%) / ${testData.length} test (${testPct}%)`,
+                    'success');
+            }
+
+        } else if (testFile) {
+            // TWO FILE MODE - Load and merge
+            console.log('Two file mode: loading test file...');
             testData = await loadCSV(testFile);
             normalizeColumnNames(testData);
             console.log(`Test data loaded: ${testData.length} rows`);
+
+            trainData = rawData;
+            mergedData = mergeDatasets(trainData, testData);
+            isSingleFileMode = false;
+
+            toggleSpinner('load-spinner', false);
+            showMessage('load-status',
+                `✓ Files merged! Train: ${trainData.length} rows | Test: ${testData.length} rows | Total: ${mergedData.length} rows, ${Object.keys(mergedData[0]).length} columns`,
+                'success');
+
+        } else {
+            // Single file mode with auto-split disabled
+            console.log('Auto-split disabled, using full dataset');
+            trainData = rawData;
+            testData = null;
+            mergedData = rawData;
+            isSingleFileMode = false;
+
+            toggleSpinner('load-spinner', false);
+            showMessage('load-status',
+                `✓ Data loaded! ${mergedData.length} rows, ${Object.keys(mergedData[0]).length} columns`,
+                'success');
         }
-
-        // Merge datasets
-        mergedData = mergeDatasets(trainData, testFile ? testData : null);
-        console.log(`Merged data: ${mergedData.length} rows, ${Object.keys(mergedData[0]).length} columns`);
-
-        toggleSpinner('load-spinner', false);
-        showMessage('load-status', `✓ Data loaded successfully! ${mergedData.length} rows, ${Object.keys(mergedData[0]).length} columns`, 'success');
 
         // Run EDA automatically
         runEDA();
@@ -565,7 +698,14 @@ function updateOverview() {
     const rows = mergedData.length;
     const cols = Object.keys(mergedData[0]).length;
 
-    document.getElementById('shape-text').textContent = `${rows} rows × ${cols} columns`;
+    let shapeText = `${rows} rows × ${cols} columns`;
+
+    // Add split info in single-file mode (split is for export only, not EDA)
+    if (isSingleFileMode && trainData && testData) {
+        shapeText += ` | Auto-split available for export: ${trainData.length} train (80%) / ${testData.length} test (20%)`;
+    }
+
+    document.getElementById('shape-text').textContent = shapeText;
     renderPreviewTable(mergedData);
 
     toggleSection('overview-section', true);
@@ -1053,22 +1193,24 @@ function getCorrelationColor(corr) {
 // ========================================
 
 /**
- * Export merged data as CSV
+ * Generic CSV export helper (DRY principle)
+ * @param {Array} data - Data to export
+ * @param {string} filename - Output filename
+ * @returns {boolean} - Success status
  */
-function exportCSV() {
-    if (!mergedData || mergedData.length === 0) {
-        showMessage('export-status', 'No data available to export', 'error');
-        return;
+function exportDataAsCSV(data, filename) {
+    if (!data || data.length === 0) {
+        return false;
     }
 
     try {
         // Get column headers
-        const columns = Object.keys(mergedData[0]);
+        const columns = Object.keys(data[0]);
 
         // Create CSV string
         let csv = columns.join(',') + '\n';
 
-        mergedData.forEach(row => {
+        data.forEach(row => {
             const values = columns.map(col => {
                 let value = row[col];
 
@@ -1092,18 +1234,81 @@ function exportCSV() {
         const url = URL.createObjectURL(blob);
 
         link.setAttribute('href', url);
-        link.setAttribute('download', 'credit_card_merged_data.csv');
+        link.setAttribute('download', filename);
         link.style.visibility = 'hidden';
 
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
 
-        showMessage('export-status', '✓ CSV exported successfully!', 'success');
+        return true;
 
     } catch (error) {
-        showMessage('export-status', `Error exporting CSV: ${error.message}`, 'error');
         console.error('Export CSV error:', error);
+        return false;
+    }
+}
+
+/**
+ * Export merged/full data as CSV
+ * In single-file mode: exports the full original dataset
+ * In two-file mode: exports the merged dataset
+ */
+function exportCSV() {
+    let filename = 'credit_card_data.csv';
+    let message = '✓ CSV exported successfully!';
+
+    // In single-file mode, clarify it's the full dataset
+    if (isSingleFileMode) {
+        filename = 'credit_card_full_data.csv';
+        message = '✓ Full dataset CSV exported successfully!';
+    } else {
+        filename = 'credit_card_merged_data.csv';
+        message = '✓ Merged CSV exported successfully!';
+    }
+
+    const success = exportDataAsCSV(mergedData, filename);
+
+    if (success) {
+        showMessage('export-status', message, 'success');
+    } else {
+        showMessage('export-status', 'No data available to export', 'error');
+    }
+}
+
+/**
+ * Export train data as CSV (single-file mode only)
+ */
+function exportTrainCSV() {
+    if (!isSingleFileMode) {
+        showMessage('export-status', 'Train export only available in single-file mode', 'error');
+        return;
+    }
+
+    const success = exportDataAsCSV(trainData, 'credit_card_train.csv');
+
+    if (success) {
+        showMessage('export-status', `✓ Train CSV exported! ${trainData.length} rows with target variable`, 'success');
+    } else {
+        showMessage('export-status', 'No train data available to export', 'error');
+    }
+}
+
+/**
+ * Export test data as CSV (single-file mode only)
+ */
+function exportTestCSV() {
+    if (!isSingleFileMode) {
+        showMessage('export-status', 'Test export only available in single-file mode', 'error');
+        return;
+    }
+
+    const success = exportDataAsCSV(testData, 'credit_card_test.csv');
+
+    if (success) {
+        showMessage('export-status', `✓ Test CSV exported! ${testData.length} rows without target variable`, 'success');
+    } else {
+        showMessage('export-status', 'No test data available to export', 'error');
     }
 }
 
@@ -1155,6 +1360,43 @@ function exportJSON() {
     }
 }
 
+/**
+ * Update export section UI based on mode (show/hide auto-split exports)
+ */
+function updateExportSection() {
+    const autoSplitDiv = document.getElementById('auto-split-exports');
+    const exportDesc = document.getElementById('export-description');
+    const exportCsvBtn = document.getElementById('export-csv-btn');
+
+    if (autoSplitDiv) {
+        // Show auto-split export buttons only in single-file mode
+        if (isSingleFileMode && trainData && testData) {
+            autoSplitDiv.style.display = 'block';
+            console.log('Auto-split exports enabled');
+        } else {
+            autoSplitDiv.style.display = 'none';
+            console.log('Auto-split exports disabled (two-file mode or no split)');
+        }
+    }
+
+    // Update description and button text based on mode
+    if (exportDesc) {
+        if (isSingleFileMode) {
+            exportDesc.textContent = 'Download the full dataset and statistical summary.';
+        } else {
+            exportDesc.textContent = 'Download the merged dataset and statistical summary.';
+        }
+    }
+
+    if (exportCsvBtn) {
+        if (isSingleFileMode) {
+            exportCsvBtn.textContent = 'Export Full CSV';
+        } else {
+            exportCsvBtn.textContent = 'Export Merged CSV';
+        }
+    }
+}
+
 // ========================================
 // MAIN EDA RUNNER
 // ========================================
@@ -1172,8 +1414,9 @@ function runEDA() {
         updateStatistics();
         updateVisualizations();
 
-        // Show export section
+        // Show export section and configure based on mode
         toggleSection('export-section', true);
+        updateExportSection();
 
         console.log('EDA complete!');
 
@@ -1207,6 +1450,18 @@ document.addEventListener('DOMContentLoaded', function() {
     const exportJsonBtn = document.getElementById('export-json-btn');
     if (exportJsonBtn) {
         exportJsonBtn.addEventListener('click', exportJSON);
+    }
+
+    // Export Train CSV button (auto-split mode)
+    const exportTrainBtn = document.getElementById('export-train-btn');
+    if (exportTrainBtn) {
+        exportTrainBtn.addEventListener('click', exportTrainCSV);
+    }
+
+    // Export Test CSV button (auto-split mode)
+    const exportTestBtn = document.getElementById('export-test-btn');
+    if (exportTestBtn) {
+        exportTestBtn.addEventListener('click', exportTestCSV);
     }
 
     console.log('Event listeners attached');
