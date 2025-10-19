@@ -1,0 +1,20 @@
+# Documentation files (keep only README.md)
+IMPLEMENTATION_PLAN.md
+VERIFICATION.md
+
+# Dataset files (users will upload their own)
+*.csv
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Logs
+*.log
