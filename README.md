@@ -1,6 +1,6 @@
-# Credit Card Default - Interactive EDA Web App
+# Credit Card Default - Interactive EDA & ML Web App
 
-A browser-only, GitHub Pages-deployable interactive web application for Exploratory Data Analysis (EDA) on the Kaggle Credit Card Default dataset.
+A browser-only, GitHub Pages-deployable interactive web application for Exploratory Data Analysis (EDA) and Machine Learning on the Kaggle Credit Card Default dataset.
 
 ## 🚀 Quick Start
 
@@ -8,7 +8,8 @@ A browser-only, GitHub Pages-deployable interactive web application for Explorat
 2. **Upload your data**: Select `train.csv` (required) and `test.csv` (optional)
 3. **Click "Load Data"**: The app automatically performs comprehensive EDA
 4. **Explore insights**: View statistics, charts, and correlations
-5. **Export results**: Download merged CSV or statistics JSON
+5. **Train ML model**: Click "Train Model" to build a neural network classifier
+6. **Export results**: Download merged CSV or statistics JSON
 
 ## 📊 Features
 
@@ -29,6 +30,14 @@ A browser-only, GitHub Pages-deployable interactive web application for Explorat
 ### Export Options
 - **CSV**: Download merged dataset
 - **JSON**: Download complete statistics summary
+- **Auto-Split**: Automatic train/test split (80/20) when loading single file
+
+### Machine Learning
+- **Neural Network Classifier**: MLP with architecture Input(23) → Dense(12, ReLU) → Dense(5, ReLU) → Output(1, Sigmoid)
+- **Real-time Training**: Live progress updates with epoch-by-epoch metrics
+- **Performance Metrics**: Training/test accuracy, loss, confusion matrix
+- **Model Evaluation**: Precision, recall, F1-score, training history visualization
+- **Interactive Controls**: Start training, stop training, view detailed results
 
 ## 🗂️ Dataset Schema
 
@@ -42,10 +51,10 @@ The app analyzes the following columns:
 | `EDUCATION` | Categorical | 1=Grad, 2=Univ, 3=HS, 4=Others |
 | `MARRIAGE` | Categorical | 1=Married, 2=Single, 3=Others |
 | `AGE` | Numeric | Age in years |
-| `PAY_0` to `PAY_6` | Categorical | Repayment status (Sept-Apr 2005) |
+| `PAY_1` to `PAY_6` | Categorical | Repayment status (Sept-Apr 2005) |
 | `BILL_AMT1` to `BILL_AMT6` | Numeric | Bill amounts (Sept-Apr) |
 | `PAY_AMT1` to `PAY_AMT6` | Numeric | Payment amounts (Sept-Apr) |
-| `default.payment.next.month` | Target | 0=No default, 1=Default |
+| `dpnm` | Target | 0=No default, 1=Default |
 
 ## 🛠️ Technology Stack
 
@@ -53,6 +62,7 @@ The app analyzes the following columns:
 - **Libraries**:
   - [PapaParse](https://www.papaparse.com/) 5.4.1 - CSV parsing
   - [Chart.js](https://www.chartjs.org/) 4.4.0 - Visualizations
+  - [TensorFlow.js](https://www.tensorflow.org/js) 4.11.0 - Machine learning
 - **Hosting**: GitHub Pages
 - **No build step required** - Pure client-side application
 
@@ -60,11 +70,9 @@ The app analyzes the following columns:
 
 ```
 credit-card-eda/
-├── index.html          # UI structure and styling (428 lines)
-├── app.js              # All JavaScript logic (1,217 lines)
+├── index.html          # UI structure and styling (554 lines)
+├── app.js              # All JavaScript logic (2,018 lines)
 ├── README.md           # This file
-├── IMPLEMENTATION_PLAN.md  # Detailed implementation plan
-└── VERIFICATION.md     # Comprehensive verification report
 ```
 
 ## 🚢 Deployment to GitHub Pages
@@ -123,28 +131,32 @@ See `IMPLEMENTATION_PLAN.md` for detailed reusability guidelines.
 
 All functionality has been verified:
 - ✅ JavaScript syntax validated
-- ✅ All 34 functions implemented
+- ✅ All 48 functions implemented (34 EDA + 14 ML)
 - ✅ Error handling tested
 - ✅ Responsive design confirmed
 - ✅ Export functions working
 - ✅ Chart rendering verified
+- ✅ TensorFlow.js integration complete
+- ✅ Neural network training functional
 
 See `VERIFICATION.md` for complete verification report.
 
 ## 🎯 Use Cases
 
-- **Data Scientists**: Quick EDA on credit risk datasets
-- **Students**: Learn about credit default patterns
-- **Researchers**: Analyze credit card behavior
-- **Educators**: Demonstrate EDA techniques
-- **Anyone**: No-code data exploration
+- **Data Scientists**: Quick EDA on credit risk datasets + train ML models in-browser
+- **Students**: Learn about credit default patterns and neural networks
+- **Researchers**: Analyze credit card behavior and build predictive models
+- **Educators**: Demonstrate EDA techniques and ML workflows
+- **Anyone**: No-code data exploration and machine learning
 
 ## 🐛 Known Limitations
 
-1. **Performance**: Large datasets (>100K rows) may be slow
+1. **Performance**: Large datasets (>100K rows) may be slow for ML training
 2. **Correlation**: Limited to 10 features for readability
 3. **Charts**: Basic interactivity (tooltips only)
 4. **Offline**: Requires internet for CDN libraries
+5. **ML Training**: Browser-based training may be slower than server-side
+6. **Memory**: Very large datasets may cause browser memory issues during training
 
 ## 📝 License
 
@@ -163,8 +175,8 @@ For issues or questions, refer to:
 
 ---
 
-**Built with**: Vanilla JavaScript, Chart.js, and PapaParse
+**Built with**: Vanilla JavaScript, Chart.js, PapaParse, and TensorFlow.js
 **Deployment**: GitHub Pages
 **Status**: Production-ready ✅
 
-*Happy Exploring! 📊*
+*Happy Exploring & Learning! 📊🤖*

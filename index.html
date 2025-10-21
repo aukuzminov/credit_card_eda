@@ -8,6 +8,7 @@
     <!-- CDN Libraries -->
     <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tf.min.js"></script>
 
     <style>
         /* Basic Reset and Layout */
@@ -439,6 +440,111 @@
             </div>
 
             <div id="export-status" class="status-message"></div>
+        </section>
+
+        <!-- Machine Learning Section -->
+        <section id="ml-section" style="display: none;">
+            <h2>7. Machine Learning - Credit Default Prediction</h2>
+            <div class="intro" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-left: 4px solid #5a67d8; color: white;">
+                <p><strong>Neural Network Classifier</strong> - Train an MLP model to predict credit card defaults</p>
+                <p>Architecture: Input(23) → Dense(12, ReLU) → Dense(5, ReLU) → Output(1, Sigmoid)</p>
+            </div>
+
+            <div class="info-box">
+                <strong>Dataset:</strong> <span id="ml-dataset-info">Ready to train</span><br>
+                <strong>Features:</strong> <span id="ml-features-info">23 features (excluding ID and target)</span><br>
+                <strong>Target:</strong> <span id="ml-target-info">dpnm (0=No Default, 1=Default)</span>
+            </div>
+
+            <h3>Training Controls</h3>
+            <button id="train-btn">🚀 Train Model</button>
+            <button id="stop-train-btn" style="background-color: #e74c3c;" disabled>⏹ Stop Training</button>
+            <div class="spinner" id="train-spinner"></div>
+            <div id="train-status" class="status-message"></div>
+
+            <div id="training-progress" style="display: none; margin-top: 20px;">
+                <h3>Training Progress</h3>
+                <div style="background: white; border: 1px solid #ddd; border-radius: 5px; padding: 15px;">
+                    <div style="margin-bottom: 10px;">
+                        <strong>Epoch:</strong> <span id="current-epoch">0</span> / <span id="total-epochs">1000</span>
+                    </div>
+                    <div style="background: #ecf0f1; border-radius: 10px; height: 25px; overflow: hidden; margin-bottom: 15px;">
+                        <div id="progress-bar" style="background: linear-gradient(90deg, #3498db, #2ecc71); height: 100%; width: 0%; transition: width 0.3s; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 0.9em;"></div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 0.9em;">
+                        <div><strong>Loss:</strong> <span id="current-loss">-</span></div>
+                        <div><strong>Accuracy:</strong> <span id="current-accuracy">-</span></div>
+                        <div><strong>Val Loss:</strong> <span id="current-val-loss">-</span></div>
+                        <div><strong>Val Accuracy:</strong> <span id="current-val-accuracy">-</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="ml-results" style="display: none; margin-top: 30px;">
+                <h3>Model Performance</h3>
+                <div class="info-box" style="background: #d4edda; border-color: #c3e6cb;">
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
+                        <div>
+                            <strong>Training Accuracy:</strong><br>
+                            <span id="train-accuracy" style="font-size: 1.5em; color: #27ae60;">-</span>
+                        </div>
+                        <div>
+                            <strong>Test Accuracy:</strong><br>
+                            <span id="test-accuracy" style="font-size: 1.5em; color: #27ae60;">-</span>
+                        </div>
+                        <div>
+                            <strong>Training Loss:</strong><br>
+                            <span id="train-loss" style="font-size: 1.2em; color: #555;">-</span>
+                        </div>
+                        <div>
+                            <strong>Test Loss:</strong><br>
+                            <span id="test-loss" style="font-size: 1.2em; color: #555;">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <h3>Confusion Matrix</h3>
+                <div class="table-container">
+                    <table style="max-width: 500px; margin: 0 auto;">
+                        <thead>
+                            <tr>
+                                <th rowspan="2" style="vertical-align: middle;">Actual</th>
+                                <th colspan="2" style="text-align: center;">Predicted</th>
+                            </tr>
+                            <tr>
+                                <th>No Default (0)</th>
+                                <th>Default (1)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <th>No Default (0)</th>
+                                <td id="cm-tn" style="background: #d4edda; font-weight: 600; font-size: 1.1em;">-</td>
+                                <td id="cm-fp" style="background: #f8d7da; font-weight: 600; font-size: 1.1em;">-</td>
+                            </tr>
+                            <tr>
+                                <th>Default (1)</th>
+                                <td id="cm-fn" style="background: #f8d7da; font-weight: 600; font-size: 1.1em;">-</td>
+                                <td id="cm-tp" style="background: #d4edda; font-weight: 600; font-size: 1.1em;">-</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="info-box" style="margin-top: 15px;">
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 0.95em;">
+                        <div><strong>Precision:</strong> <span id="precision">-</span></div>
+                        <div><strong>Recall:</strong> <span id="recall">-</span></div>
+                        <div><strong>F1-Score:</strong> <span id="f1-score">-</span></div>
+                        <div><strong>Total Samples:</strong> <span id="total-samples">-</span></div>
+                    </div>
+                </div>
+
+                <h3>Training History</h3>
+                <div class="chart-container">
+                    <canvas id="training-history-chart"></canvas>
+                </div>
+            </div>
         </section>
     </div>
 

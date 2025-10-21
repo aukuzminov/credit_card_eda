@@ -1,6 +1,8 @@
 # Documentation files (keep only README.md)
 IMPLEMENTATION_PLAN.md
 VERIFICATION.md
+ML_IMPLEMENTATION_ANALISIS.md
+CLAUDE.md
 
 # Dataset files (users will upload their own)
 *.csv

@@ -65,6 +65,25 @@ let statistics = {
 };
 let chartInstances = {};  // Store Chart.js instances for cleanup
 
+// ML-specific state
+let mlModel = null;
+let mlData = {
+    trainFeatures: null,
+    trainLabels: null,
+    testFeatures: null,
+    testLabels: null,
+    featureNames: [],
+    scaler: null  // Store normalization parameters
+};
+let trainingHistory = {
+    loss: [],
+    accuracy: [],
+    valLoss: [],
+    valAccuracy: []
+};
+let isTraining = false;
+let shouldStopTraining = false;
+
 // ========================================
 // UTILITY FUNCTIONS
 // ========================================
@@ -390,6 +409,9 @@ async function handleFileLoad() {
 
         // Run EDA automatically
         runEDA();
+
+        // Show ML section after data is loaded
+        document.getElementById('ml-section').style.display = 'block';
 
     } catch (error) {
         toggleSpinner('load-spinner', false);
@@ -1441,8 +1463,555 @@ document.addEventListener('DOMContentLoaded', function() {
         exportTestBtn.addEventListener('click', exportTestCSV);
     }
 
+    // ML Train button
+    const trainBtn = document.getElementById('train-btn');
+    if (trainBtn) {
+        trainBtn.addEventListener('click', handleTrainModel);
+    }
+
+    // ML Stop button
+    const stopTrainBtn = document.getElementById('stop-train-btn');
+    if (stopTrainBtn) {
+        stopTrainBtn.addEventListener('click', stopTraining);
+    }
+
     console.log('Event listeners attached');
 });
+
+// ========================================
+// MACHINE LEARNING FUNCTIONS
+// ========================================
+
+/**
+ * Prepare data for ML training
+ * Split mergedData into train/test, extract features and labels, normalize
+ */
+function prepareMLData() {
+    try {
+        if (!mergedData || mergedData.length === 0) {
+            throw new Error('No data available for ML training');
+        }
+
+        // Check if target column exists
+        const targetCol = CONFIG.schema.target;
+        if (!(targetCol in mergedData[0])) {
+            throw new Error(`Target column '${targetCol}' not found in dataset`);
+        }
+
+        // Filter out rows with missing target
+        const dataWithTarget = mergedData.filter(row =>
+            row[targetCol] !== null &&
+            row[targetCol] !== undefined &&
+            row[targetCol] !== ''
+        );
+
+        if (dataWithTarget.length < 100) {
+            throw new Error('Insufficient data for ML training (need at least 100 rows with target)');
+        }
+
+        // Shuffle data
+        const shuffled = shuffleArray([...dataWithTarget]);
+
+        // Split 80/20 for ML purposes (different from export split)
+        const splitIdx = Math.floor(shuffled.length * 0.8);
+        const mlTrainData = shuffled.slice(0, splitIdx);
+        const mlTestData = shuffled.slice(splitIdx);
+
+        // Get feature columns (exclude ID and target)
+        const allColumns = Object.keys(shuffled[0]);
+        const featureColumns = allColumns.filter(col =>
+            col !== CONFIG.schema.identifier &&
+            col !== targetCol
+        );
+
+        mlData.featureNames = featureColumns;
+
+        // Extract features and labels for training set
+        const trainFeatureArrays = mlTrainData.map(row =>
+            featureColumns.map(col => {
+                const val = parseFloat(row[col]);
+                return isNaN(val) ? 0 : val;
+            })
+        );
+        const trainLabelArray = mlTrainData.map(row => parseFloat(row[targetCol]));
+
+        // Extract features and labels for test set
+        const testFeatureArrays = mlTestData.map(row =>
+            featureColumns.map(col => {
+                const val = parseFloat(row[col]);
+                return isNaN(val) ? 0 : val;
+            })
+        );
+        const testLabelArray = mlTestData.map(row => parseFloat(row[targetCol]));
+
+        // Normalize features (fit on train, transform both)
+        const scaler = computeScaler(trainFeatureArrays);
+        mlData.scaler = scaler;
+
+        const trainFeaturesNormalized = normalizeFeatures(trainFeatureArrays, scaler);
+        const testFeaturesNormalized = normalizeFeatures(testFeatureArrays, scaler);
+
+        // Convert to tensors
+        mlData.trainFeatures = tf.tensor2d(trainFeaturesNormalized);
+        mlData.trainLabels = tf.tensor2d(trainLabelArray, [trainLabelArray.length, 1]);
+        mlData.testFeatures = tf.tensor2d(testFeaturesNormalized);
+        mlData.testLabels = tf.tensor2d(testLabelArray, [testLabelArray.length, 1]);
+
+        console.log(`ML data prepared: ${mlTrainData.length} train, ${mlTestData.length} test, ${featureColumns.length} features`);
+
+        return {
+            trainSize: mlTrainData.length,
+            testSize: mlTestData.length,
+            numFeatures: featureColumns.length
+        };
+
+    } catch (error) {
+        console.error('Error preparing ML data:', error);
+        throw error;
+    }
+}
+
+/**
+ * Compute mean and std for each feature (for normalization)
+ * @param {Array} features - 2D array of feature values
+ * @returns {Object} Scaler with means and stds
+ */
+function computeScaler(features) {
+    const numFeatures = features[0].length;
+    const means = new Array(numFeatures).fill(0);
+    const stds = new Array(numFeatures).fill(0);
+
+    // Compute means
+    for (let j = 0; j < numFeatures; j++) {
+        let sum = 0;
+        for (let i = 0; i < features.length; i++) {
+            sum += features[i][j];
+        }
+        means[j] = sum / features.length;
+    }
+
+    // Compute standard deviations
+    for (let j = 0; j < numFeatures; j++) {
+        let sumSquaredDiff = 0;
+        for (let i = 0; i < features.length; i++) {
+            const diff = features[i][j] - means[j];
+            sumSquaredDiff += diff * diff;
+        }
+        stds[j] = Math.sqrt(sumSquaredDiff / features.length);
+        // Avoid division by zero
+        if (stds[j] === 0) stds[j] = 1;
+    }
+
+    return { means, stds };
+}
+
+/**
+ * Normalize features using scaler parameters
+ * @param {Array} features - 2D array of feature values
+ * @param {Object} scaler - Scaler with means and stds
+ * @returns {Array} Normalized features
+ */
+function normalizeFeatures(features, scaler) {
+    return features.map(row =>
+        row.map((val, j) => (val - scaler.means[j]) / scaler.stds[j])
+    );
+}
+
+/**
+ * Build the MLP model
+ * Architecture: Input(23) -> Dense(12, relu) -> Dense(5, relu) -> Dense(1, sigmoid)
+ * @param {number} inputDim - Number of input features
+ * @returns {tf.Sequential} Compiled model
+ */
+function buildModel(inputDim) {
+    const model = tf.sequential();
+
+    // Input layer + first hidden layer (12 neurons, ReLU)
+    model.add(tf.layers.dense({
+        inputDim: inputDim,
+        units: 12,
+        activation: 'relu',
+        kernelInitializer: 'heNormal'
+    }));
+
+    // Second hidden layer (5 neurons, ReLU)
+    model.add(tf.layers.dense({
+        units: 5,
+        activation: 'relu',
+        kernelInitializer: 'heNormal'
+    }));
+
+    // Output layer (1 neuron, Sigmoid for binary classification)
+    model.add(tf.layers.dense({
+        units: 1,
+        activation: 'sigmoid',
+        kernelInitializer: 'glorotUniform'
+    }));
+
+    // Compile model
+    model.compile({
+        optimizer: tf.train.adam(0.001),
+        loss: 'binaryCrossentropy',
+        metrics: ['accuracy']
+    });
+
+    console.log('Model built:');
+    model.summary();
+
+    return model;
+}
+
+/**
+ * Train the model with callbacks for progress updates
+ * @param {number} epochs - Number of training epochs
+ * @param {number} batchSize - Batch size for training
+ */
+async function trainModel(epochs = 1000, batchSize = 32) {
+    try {
+        isTraining = true;
+        shouldStopTraining = false;
+
+        // Update UI
+        document.getElementById('train-btn').disabled = true;
+        document.getElementById('stop-train-btn').disabled = false;
+        document.getElementById('train-spinner').style.display = 'block';
+        document.getElementById('training-progress').style.display = 'block';
+        document.getElementById('ml-results').style.display = 'none';
+        document.getElementById('total-epochs').textContent = epochs;
+
+        // Reset training history
+        trainingHistory = {
+            loss: [],
+            accuracy: [],
+            valLoss: [],
+            valAccuracy: []
+        };
+
+        showMessage('train-status', 'Preparing data...', 'info');
+
+        // Prepare data
+        const dataInfo = prepareMLData();
+
+        showMessage('train-status', `Training on ${dataInfo.trainSize} samples, validating on ${dataInfo.testSize} samples...`, 'info');
+
+        // Build model
+        mlModel = buildModel(dataInfo.numFeatures);
+
+        // Define callbacks
+        const callbacks = {
+            onEpochEnd: async (epoch, logs) => {
+                // Store history
+                trainingHistory.loss.push(logs.loss);
+                trainingHistory.accuracy.push(logs.acc);
+                trainingHistory.valLoss.push(logs.val_loss);
+                trainingHistory.valAccuracy.push(logs.val_acc);
+
+                // Update UI every 10 epochs or on last epoch
+                if (epoch % 10 === 0 || epoch === epochs - 1) {
+                    updateTrainingProgress(epoch + 1, epochs, logs);
+                }
+
+                // Check if training should stop
+                if (shouldStopTraining) {
+                    showMessage('train-status', 'Training stopped by user', 'info');
+                    mlModel.stopTraining = true;
+                }
+
+                // Allow UI to update
+                await tf.nextFrame();
+            },
+            onTrainEnd: async () => {
+                isTraining = false;
+                document.getElementById('train-btn').disabled = false;
+                document.getElementById('stop-train-btn').disabled = true;
+                document.getElementById('train-spinner').style.display = 'none';
+
+                if (shouldStopTraining) {
+                    showMessage('train-status', 'Training stopped. Model may be undertrained.', 'info');
+                } else {
+                    showMessage('train-status', 'Training completed successfully!', 'success');
+                }
+
+                // Evaluate and display results
+                await evaluateModel();
+            }
+        };
+
+        // Train the model
+        await mlModel.fit(mlData.trainFeatures, mlData.trainLabels, {
+            epochs: epochs,
+            batchSize: batchSize,
+            validationData: [mlData.testFeatures, mlData.testLabels],
+            shuffle: true,
+            callbacks: callbacks
+        });
+
+    } catch (error) {
+        console.error('Training error:', error);
+        showMessage('train-status', `Training failed: ${error.message}`, 'error');
+        isTraining = false;
+        document.getElementById('train-btn').disabled = false;
+        document.getElementById('stop-train-btn').disabled = true;
+        document.getElementById('train-spinner').style.display = 'none';
+    }
+}
+
+/**
+ * Update training progress UI
+ * @param {number} currentEpoch - Current epoch number
+ * @param {number} totalEpochs - Total number of epochs
+ * @param {Object} logs - Training logs
+ */
+function updateTrainingProgress(currentEpoch, totalEpochs, logs) {
+    document.getElementById('current-epoch').textContent = currentEpoch;
+
+    const progress = (currentEpoch / totalEpochs) * 100;
+    const progressBar = document.getElementById('progress-bar');
+    progressBar.style.width = `${progress}%`;
+    progressBar.textContent = `${progress.toFixed(1)}%`;
+
+    document.getElementById('current-loss').textContent = logs.loss.toFixed(4);
+    document.getElementById('current-accuracy').textContent = (logs.acc * 100).toFixed(2) + '%';
+    document.getElementById('current-val-loss').textContent = logs.val_loss.toFixed(4);
+    document.getElementById('current-val-accuracy').textContent = (logs.val_acc * 100).toFixed(2) + '%';
+}
+
+/**
+ * Evaluate model and display results
+ */
+async function evaluateModel() {
+    try {
+        // Evaluate on training set
+        const trainEval = mlModel.evaluate(mlData.trainFeatures, mlData.trainLabels);
+        const trainLoss = (await trainEval[0].data())[0];
+        const trainAcc = (await trainEval[1].data())[0];
+
+        // Evaluate on test set
+        const testEval = mlModel.evaluate(mlData.testFeatures, mlData.testLabels);
+        const testLoss = (await testEval[0].data())[0];
+        const testAcc = (await testEval[1].data())[0];
+
+        // Dispose evaluation tensors
+        tf.dispose(trainEval);
+        tf.dispose(testEval);
+
+        // Update performance metrics
+        document.getElementById('train-accuracy').textContent = (trainAcc * 100).toFixed(2) + '%';
+        document.getElementById('train-loss').textContent = trainLoss.toFixed(4);
+        document.getElementById('test-accuracy').textContent = (testAcc * 100).toFixed(2) + '%';
+        document.getElementById('test-loss').textContent = testLoss.toFixed(4);
+
+        // Generate predictions for confusion matrix
+        const predictions = mlModel.predict(mlData.testFeatures);
+        const predArray = await predictions.data();
+        const labelArray = await mlData.testLabels.data();
+
+        // Convert probabilities to binary predictions (threshold 0.5)
+        const predBinary = Array.from(predArray).map(p => p >= 0.5 ? 1 : 0);
+        const labelBinary = Array.from(labelArray);
+
+        // Compute confusion matrix
+        const confusionMatrix = computeConfusionMatrix(labelBinary, predBinary);
+
+        // Display confusion matrix and metrics
+        displayConfusionMatrix(confusionMatrix);
+
+        // Display training history chart
+        displayTrainingHistory();
+
+        // Show results section
+        document.getElementById('ml-results').style.display = 'block';
+
+        // Cleanup
+        predictions.dispose();
+
+    } catch (error) {
+        console.error('Evaluation error:', error);
+        showMessage('train-status', `Evaluation failed: ${error.message}`, 'error');
+    }
+}
+
+/**
+ * Compute confusion matrix
+ * @param {Array} yTrue - True labels
+ * @param {Array} yPred - Predicted labels
+ * @returns {Object} Confusion matrix with TP, TN, FP, FN
+ */
+function computeConfusionMatrix(yTrue, yPred) {
+    let tp = 0, tn = 0, fp = 0, fn = 0;
+
+    for (let i = 0; i < yTrue.length; i++) {
+        if (yTrue[i] === 1 && yPred[i] === 1) tp++;
+        else if (yTrue[i] === 0 && yPred[i] === 0) tn++;
+        else if (yTrue[i] === 0 && yPred[i] === 1) fp++;
+        else if (yTrue[i] === 1 && yPred[i] === 0) fn++;
+    }
+
+    return { tp, tn, fp, fn };
+}
+
+/**
+ * Display confusion matrix and derived metrics
+ * @param {Object} cm - Confusion matrix
+ */
+function displayConfusionMatrix(cm) {
+    const { tp, tn, fp, fn } = cm;
+
+    // Update confusion matrix cells
+    document.getElementById('cm-tp').textContent = tp;
+    document.getElementById('cm-tn').textContent = tn;
+    document.getElementById('cm-fp').textContent = fp;
+    document.getElementById('cm-fn').textContent = fn;
+
+    // Compute metrics
+    const precision = tp + fp > 0 ? tp / (tp + fp) : 0;
+    const recall = tp + fn > 0 ? tp / (tp + fn) : 0;
+    const f1 = precision + recall > 0 ? 2 * (precision * recall) / (precision + recall) : 0;
+    const total = tp + tn + fp + fn;
+
+    // Update metrics
+    document.getElementById('precision').textContent = (precision * 100).toFixed(2) + '%';
+    document.getElementById('recall').textContent = (recall * 100).toFixed(2) + '%';
+    document.getElementById('f1-score').textContent = f1.toFixed(4);
+    document.getElementById('total-samples').textContent = total;
+}
+
+/**
+ * Display training history chart
+ */
+function displayTrainingHistory() {
+    const ctx = document.getElementById('training-history-chart');
+
+    // Destroy existing chart if any
+    destroyChart('training-history');
+
+    const epochs = trainingHistory.loss.map((_, i) => i + 1);
+
+    chartInstances['training-history'] = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: epochs,
+            datasets: [
+                {
+                    label: 'Training Loss',
+                    data: trainingHistory.loss,
+                    borderColor: '#e74c3c',
+                    backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.4
+                },
+                {
+                    label: 'Validation Loss',
+                    data: trainingHistory.valLoss,
+                    borderColor: '#e67e22',
+                    backgroundColor: 'rgba(230, 126, 34, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.4
+                },
+                {
+                    label: 'Training Accuracy',
+                    data: trainingHistory.accuracy.map(a => a * 100),
+                    borderColor: '#27ae60',
+                    backgroundColor: 'rgba(39, 174, 96, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.4,
+                    yAxisID: 'y-acc'
+                },
+                {
+                    label: 'Validation Accuracy',
+                    data: trainingHistory.valAccuracy.map(a => a * 100),
+                    borderColor: '#3498db',
+                    backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.4,
+                    yAxisID: 'y-acc'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            interaction: {
+                mode: 'index',
+                intersect: false
+            },
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Training History - Loss and Accuracy',
+                    font: { size: 16 }
+                },
+                legend: {
+                    display: true,
+                    position: 'top'
+                }
+            },
+            scales: {
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Epoch'
+                    }
+                },
+                y: {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    title: {
+                        display: true,
+                        text: 'Loss'
+                    }
+                },
+                'y-acc': {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    title: {
+                        display: true,
+                        text: 'Accuracy (%)'
+                    },
+                    grid: {
+                        drawOnChartArea: false
+                    }
+                }
+            }
+        }
+    });
+}
+
+/**
+ * Stop training
+ */
+function stopTraining() {
+    if (isTraining) {
+        shouldStopTraining = true;
+        showMessage('train-status', 'Stopping training...', 'info');
+    }
+}
+
+/**
+ * Event handler for train button
+ */
+async function handleTrainModel() {
+    if (!mergedData || mergedData.length === 0) {
+        showMessage('train-status', 'Please load data first before training', 'error');
+        return;
+    }
+
+    // Show ML section
+    document.getElementById('ml-section').style.display = 'block';
+
+    // Start training
+    await trainModel(1000, 32);
+}
+
+// ========================================
+// END MACHINE LEARNING FUNCTIONS
+// ========================================
 
 // ========================================
 // END OF APP.JS
